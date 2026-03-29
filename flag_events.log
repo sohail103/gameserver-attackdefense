@@ -1,5 +1,21 @@
-Flag submission log started at 2025-11-09T08:10:01.718459
+Flag submission log started at 2026-03-10T18:47:46.482384
 ==================================================
-[2025-11-09T08:12:22.811163] VALID | Attacker IP: 192.168.1.11 | Team: narendhar | Flag: 'FLAG{sohail_web-server_1549a0c169767bef035064be7bb3369e}' | Message: Valid flag! Captured sohail's web-server service
-[2025-11-09T08:12:45.694317] INVALID | Attacker IP: 192.168.1.11 | Team: narendhar | Flag: 'FLAG{team-bravo_sqlinjection_9414936810d3f6591612e9aebf433b0f}' | Message: Invalid or expired flag
-[2025-11-09T08:12:51.279694] INVALID | Attacker IP: 192.168.1.11 | Team: narendhar | Flag: 'FLAG{sohail_web-server_940a4a03ac4a8f43f2de1ad013558499}' | Message: Invalid or expired flag
+
+=== Server session started at 2026-03-28T22:25:01.015170 ===
+
+=== Server session started at 2026-03-28T22:28:14.019775 ===
+
+=== Server session started at 2026-03-29T00:00:33.822583 ===
+
+=== Server session started at 2026-03-29T01:28:01.842864 ===
+[2026-03-29T01:28:40.165000] INVALID | Attacker IP: 127.0.0.1 | Team: sohail | Flag: 'FLAG{token_compat_check_invalid}' | Message: Invalid or expired flag
+[2026-03-29T01:29:50.158474] INVALID | Attacker IP: 127.0.0.1 | Team: sohail | Flag: 'FLAG{token_compat_check_invalid}' | Message: Invalid or expired flag
+[2026-03-29T01:29:52.862585] INVALID | Attacker IP: 192.168.1.11 | Team: narendhar | Flag: 'FLAG{sohail_test1_a15e2c3a02590293c9e471680dc3858f}' | Message: Invalid or expired flag
+[2026-03-29T01:30:50.160667] INVALID | Attacker IP: 127.0.0.1 | Team: sohail | Flag: 'FLAG{token_compat_check_invalid}' | Message: Invalid or expired flag
+[2026-03-29T01:31:09.629700] INVALID | Attacker IP: 192.168.1.11 | Team: narendhar | Flag: 'FLAG{sohail_test1_5faa4046efae9d08dbddb3f3f}' | Message: Invalid or expired flag
+[2026-03-29T01:31:50.147228] INVALID | Attacker IP: 127.0.0.1 | Team: sohail | Flag: 'FLAG{token_compat_check_invalid}' | Message: Invalid or expired flag
+[2026-03-29T01:32:12.725316] VALID | Attacker IP: 192.168.1.11 | Team: narendhar | Flag: 'FLAG{sohail_test1_0b56b814093f81aaeba79096274e3987}' | Message: Valid flag! Captured sohail's test1 service
+[2026-03-29T01:32:42.416167] INVALID | Attacker IP: 127.0.0.1 | Team: sohail | Flag: 'FLAG{token_compat_check_invalid}' | Message: Invalid or expired flag
+
+=== Server session started at 2026-03-29T01:33:49.488823 ===
+[2026-03-29T01:33:50.150598] INVALID | Attacker IP: 127.0.0.1 | Team: sohail | Flag: 'FLAG{token_compat_check_invalid}' | Message: Invalid or expired flag

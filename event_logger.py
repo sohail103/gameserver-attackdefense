@@ -6,23 +6,32 @@ Files are overwritten each time the server starts.
 """
 
 import datetime
+import os
 
 SERVICE_LOG_FILE = "service_events.log"
 FLAG_LOG_FILE = "flag_events.log"
 
+
 def initialize_logs():
-    """
-    Creates or overwrites the log files at startup.
-    """
+    session_marker = (
+        f"\n=== Server session started at {datetime.datetime.now().isoformat()} ===\n"
+    )
     try:
-        with open(SERVICE_LOG_FILE, "w") as f:
-            f.write(f"Service events log started at {datetime.datetime.now().isoformat()}\n")
-            f.write("=" * 50 + "\n")
-        with open(FLAG_LOG_FILE, "w") as f:
-            f.write(f"Flag submission log started at {datetime.datetime.now().isoformat()}\n")
-            f.write("=" * 50 + "\n")
+        service_exists = os.path.exists(SERVICE_LOG_FILE)
+        flag_exists = os.path.exists(FLAG_LOG_FILE)
+
+        with open(SERVICE_LOG_FILE, "a") as f:
+            if not service_exists:
+                f.write("Service events log initialized\n")
+            f.write(session_marker)
+
+        with open(FLAG_LOG_FILE, "a") as f:
+            if not flag_exists:
+                f.write("Flag submission log initialized\n")
+            f.write(session_marker)
     except IOError as e:
         print(f"Error initializing log files: {e}")
+
 
 def log_service_down(team_name: str, service_name: str, points_lost: int, reason: str):
     """Logs when a team loses points for a service being down."""
@@ -36,7 +45,10 @@ def log_service_down(team_name: str, service_name: str, points_lost: int, reason
     except IOError as e:
         print(f"Error writing to service log: {e}")
 
-def log_flag_submission(attacker_ip: str, attacker_team: str, flag: str, message: str, is_valid: bool):
+
+def log_flag_submission(
+    attacker_ip: str, attacker_team: str, flag: str, message: str, is_valid: bool
+):
     """Logs a flag submission attempt."""
     try:
         with open(FLAG_LOG_FILE, "a") as f:

@@ -4,9 +4,12 @@
         "ip": "127.0.0.1",
         "token": "token-sohail-8e1d480ab85d59a2",
         "expected_tcp_ports": [
-            2222,
-            8081,
-            8001
+            8000,
+            8001,
+            8002,
+            8003,
+            8004,
+            8005
         ],
         "expected_udp_ports": [],
         "score": 1000,
@@ -21,9 +24,12 @@
         "ip": "192.168.1.11",
         "token": "token-narendhar-5d962e1d3951f5e7",
         "expected_tcp_ports": [
-            2222,
-            8081,
-            8001
+            8000,
+            8001,
+            8002,
+            8003,
+            8004,
+            8005
         ],
         "expected_udp_ports": [],
         "score": 1000,
@@ -38,9 +44,12 @@
         "ip": "192.168.1.12",
         "token": "token-dharun-6c3abbdc26e246de",
         "expected_tcp_ports": [
-            2222,
-            8081,
-            8001
+            8000,
+            8001,
+            8002,
+            8003,
+            8004,
+            8005
         ],
         "expected_udp_ports": [],
         "score": 1000,
@@ -55,9 +64,12 @@
         "ip": "192,168..1.14",
         "token": "token-abcd-35a331f24b5d6cfa",
         "expected_tcp_ports": [
-            2222,
-            8081,
-            9000
+            8000,
+            8001,
+            8002,
+            8003,
+            8004,
+            8005
         ],
         "expected_udp_ports": [],
         "score": 1000,
