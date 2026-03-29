@@ -1,15 +1,19 @@
-"""""
+"""
 web_server.py
 
-Flask web servers for CTF game interface.
+FastAPI web servers for CTF game interface.
 - Public server: Scoreboard and flag submission (accessible to teams)
 - Admin server: Game controls (localhost only)
 """
 
 import logging
 import secrets
-from flask import Flask, render_template_string, request, jsonify
 from threading import Thread
+
+import uvicorn
+from fastapi import FastAPI, Request
+from fastapi.responses import HTMLResponse, JSONResponse
+from jinja2 import Environment
 
 from game_state import game_state, GameStatus, Team
 from scanner import scanner
@@ -17,9 +21,10 @@ from newflagvalidator import flag_validator
 
 logger = logging.getLogger("web_server")
 
-# Create two separate Flask apps
-public_app = Flask('public')
-admin_app = Flask('admin')
+# Create two separate FastAPI apps
+public_app = FastAPI(title="CTF Public API")
+admin_app = FastAPI(title="CTF Admin API")
+template_env = Environment(autoescape=True)
 
 
 # ===== PUBLIC SCOREBOARD TEMPLATE ===== #
@@ -480,7 +485,7 @@ ADMIN_TEMPLATE = """
                         <td>{{ team.expected_tcp_ports | join(', ') }}</td>
                         <td>
                             <button onclick="deleteTeam('{{ team.name }}')">Delete</button>
-                            <button onclick="toggleScan('{{ team.name }}', {{ team.scanning_paused | tojson }})">
+                            <button onclick="toggleScan('{{ team.name }}', {{ 'true' if team.scanning_paused else 'false' }})">
                                 {{ 'Resume Scan' if team.scanning_paused else 'Pause Scan' }}
                             </button>
                         </td>
@@ -562,53 +567,54 @@ ADMIN_TEMPLATE = """
 """
 
 
-@public_app.template_filter('timestamp')
-@admin_app.template_filter('timestamp')
 def timestamp_filter(ts):
-    """Format timestamp"""
     if ts is None:
         return "N/A"
     import datetime
+
     dt = datetime.datetime.fromtimestamp(ts)
-    return dt.strftime('%H:%M:%S')
+    return dt.strftime("%H:%M:%S")
+
+
+template_env.filters["timestamp"] = timestamp_filter
+
+
+def render_inline_template(template_text: str, **context) -> HTMLResponse:
+    template = template_env.from_string(template_text)
+    return HTMLResponse(template.render(**context))
 
 
 # ===== PUBLIC ENDPOINTS ===== #
-@public_app.route('/')
-def public_index():
-    """Public scoreboard page"""
+@public_app.get("/", response_class=HTMLResponse)
+async def public_index():
     scoreboard = game_state.get_scoreboard()
     game_info = game_state.get_game_info()
-    
-    return render_template_string(
+
+    return render_inline_template(
         PUBLIC_SCOREBOARD_TEMPLATE,
         scoreboard=scoreboard,
-        game_info=game_info
+        game_info=game_info,
     )
 
 
-@public_app.route('/api/scoreboard')
-def public_api_scoreboard():
-    """JSON scoreboard endpoint (no IPs exposed)"""
+@public_app.get("/api/scoreboard")
+async def public_api_scoreboard():
     scoreboard = game_state.get_scoreboard()
-    # Remove tokens from public API
     for team in scoreboard:
-        team.pop('token', None)
-    
-    return jsonify({
+        team.pop("token", None)
+
+    return {
         "scoreboard": scoreboard,
         "game_info": {
             "status": game_state.get_status().value,
             "start_time": game_state.get_game_info()["start_time"],
-        }
-    })
+        },
+    }
 
 
-@public_app.route('/api/events')
-def public_api_events():
-    """JSON endpoint for recent game events (valid flag captures)"""
+@public_app.get("/api/events")
+async def public_api_events():
     events = game_state.get_recent_events()
-    # Sanitize events to only expose necessary info
     sanitized_events = [
         {
             "timestamp": event["timestamp"],
@@ -618,31 +624,15 @@ def public_api_events():
         }
         for event in events
     ]
-    return jsonify(sanitized_events)
+    return sanitized_events
 
 
+@public_app.post("/api/generate_flag")
+async def public_generate_flag(request: Request):
+    ip_addr = request.client.host if request.client else ""
+    if ip_addr == "::1":
+        ip_addr = "127.0.0.1"
 
-@public_app.route('/api/generate_flag', methods=['POST'])
-def public_generate_flag():
-    """
-    Flag generation endpoint - used by services to get their current flag.
-    
-    Expected JSON body:
-    {
-        "team": "team-alpha",
-        "service": "web-server"
-    }
-    
-    Response:
-    {
-        "success": true,
-        "flag": "FLAG{team-alpha_web-server_abc123...}",
-        "message": "Flag generated successfully"
-    }
-    """
-    ip_addr = request.remote_addr
-    
-    # Find team by IP
     requesting_team = None
     for team in game_state.get_all_teams().values():
         if team.ip == ip_addr:
@@ -650,232 +640,259 @@ def public_generate_flag():
             break
 
     if not requesting_team:
-        return jsonify({
-            "success": False,
-            "flag": "",
-            "message": "Your IP is not registered to a team."
-        }), 403
+        return JSONResponse(
+            status_code=403,
+            content={
+                "success": False,
+                "flag": "",
+                "message": "Your IP is not registered to a team.",
+            },
+        )
 
-    data = request.get_json()
-    
-    if not data or 'team' not in data or 'service' not in data:
-        return jsonify({
-            "success": False,
-            "flag": "",
-            "message": "Missing 'team' or 'service' field"
-        }), 400
-    
-    team_name = data['team']
-    service_name = data['service']
+    try:
+        data = await request.json()
+    except Exception:
+        data = None
 
-    # Security check: ensure the request is for the team's own flag
+    if not data or "team" not in data or "service" not in data:
+        return JSONResponse(
+            status_code=400,
+            content={
+                "success": False,
+                "flag": "",
+                "message": "Missing 'team' or 'service' field",
+            },
+        )
+
+    team_name = data["team"]
+    service_name = data["service"]
+
     if requesting_team.name != team_name:
         logger.warning(
             "IP %s for team %s tried to generate a flag for team %s",
-            ip_addr, requesting_team.name, team_name
+            ip_addr,
+            requesting_team.name,
+            team_name,
         )
-        return jsonify({
-            "success": False,
-            "flag": "",
-            "message": "You can only generate flags for your own team."
-        }), 403
-    
-    # Generate flag
+        return JSONResponse(
+            status_code=403,
+            content={
+                "success": False,
+                "flag": "",
+                "message": "You can only generate flags for your own team.",
+            },
+        )
+
     success, flag, message = flag_validator.generate_flag(team_name, service_name)
-    
+
     if not success:
-        return jsonify({
-            "success": False,
-            "flag": "",
-            "message": message
-        }), 400
-    
-    return jsonify({
-        "success": True,
-        "flag": flag,
-        "message": message
-    })
+        return JSONResponse(
+            status_code=400,
+            content={"success": False, "flag": "", "message": message},
+        )
+
+    return {"success": True, "flag": flag, "message": message}
 
 
-@public_app.route('/api/submit_flag', methods=['POST'])
-def public_submit_flag():
-    """
-    Flag submission endpoint.
-    
-    Expected JSON body:
-    {
-        "flag": "FLAG{...}"
-    }
-    
-    Response:
-    {
-        "success": true,
-        "message": "Valid flag! Captured team-bravo's web-server service",
-        "points": 50
-    }
-    """
-    logger.info("Received request to /api/submit_flag")
-    logger.info("Request headers: %s", request.headers)
-    logger.info("Request data: %s", request.get_data(as_text=True))
+@public_app.post("/api/submit_flag")
+async def public_submit_flag(request: Request):
     try:
-        data = request.get_json()
+        data = await request.json()
         if not data:
-            return jsonify({"success": False, "message": "Invalid JSON data"}), 400
-    except Exception as e:
-        logger.error("Failed to decode JSON: %s", e)
-        return jsonify({"success": False, "message": "Invalid JSON format"}), 400
+            return JSONResponse(
+                status_code=400,
+                content={"success": False, "message": "Invalid JSON data"},
+            )
+    except Exception:
+        return JSONResponse(
+            status_code=400,
+            content={"success": False, "message": "Invalid JSON format"},
+        )
 
-    if 'flag' not in data or 'token' not in data:
-        return jsonify({
-            "success": False,
-            "message": "Missing 'flag' or 'token' field"
-        }), 400
-    
-    flag = data['flag']
-    token = data['token']
-    
-    # Check if game is running
+    if "flag" not in data or "token" not in data:
+        return JSONResponse(
+            status_code=400,
+            content={"success": False, "message": "Missing 'flag' or 'token' field"},
+        )
+
+    flag = data["flag"]
+    token = data["token"]
+
     if game_state.get_status() != GameStatus.RUNNING:
-        return jsonify({
-            "success": False,
-            "message": "Game is not running"
-        }), 400
-    
-    # Validate flag
+        return JSONResponse(
+            status_code=400,
+            content={"success": False, "message": "Game is not running"},
+        )
+
     is_valid, message, points = flag_validator.validate_submission(token, flag)
-    
-    return jsonify({
-        "success": is_valid,
-        "message": message,
-        "points": points
-    })
+
+    return {"success": is_valid, "message": message, "points": points}
 
 
 # ===== ADMIN ENDPOINTS ===== #
-@admin_app.route('/')
-def admin_index():
-    """Admin control panel"""
+@admin_app.get("/", response_class=HTMLResponse)
+async def admin_index():
     scoreboard = game_state.get_scoreboard()
     game_info = game_state.get_game_info()
     scanner_running = scanner.is_running()
-    
-    return render_template_string(
+
+    return render_inline_template(
         ADMIN_TEMPLATE,
         scoreboard=scoreboard,
         game_info=game_info,
-        scanner_running=scanner_running
+        scanner_running=scanner_running,
     )
 
 
-@admin_app.route('/api/scoreboard')
-def admin_api_scoreboard():
-    """JSON scoreboard endpoint with full details"""
-    return jsonify({
+@admin_app.get("/api/scoreboard")
+async def admin_api_scoreboard():
+    return {
         "scoreboard": game_state.get_scoreboard(),
         "game_info": game_state.get_game_info(),
-        "scanner_running": scanner.is_running()
-    })
+        "scanner_running": scanner.is_running(),
+    }
 
 
-@admin_app.route('/api/control/<action>', methods=['POST'])
-def admin_control_game(action):
-    """Control game state - ADMIN ONLY"""
-    if action == 'start':
+@admin_app.post("/api/control/{action}")
+async def admin_control_game(action: str):
+    if action == "start":
         game_state.set_status(GameStatus.RUNNING)
         if not scanner.is_running():
             scanner.start()
-        return jsonify({"success": True, "message": "Game started!"})
-    
-    elif action == 'pause':
+        return {"success": True, "message": "Game started!"}
+
+    if action == "pause":
         game_state.set_status(GameStatus.PAUSED)
-        return jsonify({"success": True, "message": "Game paused"})
-    
-    elif action == 'stop':
+        return {"success": True, "message": "Game paused"}
+
+    if action == "stop":
         game_state.set_status(GameStatus.FINISHED)
         scanner.stop()
-        return jsonify({"success": True, "message": "Game stopped"})
-    
-    elif action == 'reset':
-        game_state.reset_game_state()
-        return jsonify({"success": True, "message": "Game state has been reset."})
-    
-    else:
-        return jsonify({"success": False, "message": "Unknown action"}), 400
+        return {"success": True, "message": "Game stopped"}
 
-@admin_app.route('/api/teams', methods=['POST'])
-def admin_add_team():
-    """Add a new team"""
-    data = request.get_json()
-    if not data or 'name' not in data or 'ip' not in data or 'expected_tcp_ports' not in data:
-        return jsonify({"success": False, "message": "Missing required fields"}), 400
-    
+    if action == "reset":
+        game_state.reset_game_state()
+        flag_validator.clear_active_flags()
+        return {"success": True, "message": "Game state has been reset."}
+
+    return JSONResponse(
+        status_code=400, content={"success": False, "message": "Unknown action"}
+    )
+
+
+@admin_app.post("/api/teams")
+async def admin_add_team(request: Request):
+    try:
+        data = await request.json()
+    except Exception:
+        data = None
+
+    if (
+        not data
+        or "name" not in data
+        or "ip" not in data
+        or "expected_tcp_ports" not in data
+    ):
+        return JSONResponse(
+            status_code=400,
+            content={"success": False, "message": "Missing required fields"},
+        )
+
+    try:
+        expected_ports = [int(port) for port in data["expected_tcp_ports"]]
+    except (TypeError, ValueError):
+        return JSONResponse(
+            status_code=400,
+            content={
+                "success": False,
+                "message": "expected_tcp_ports must be a list of integers",
+            },
+        )
+
     try:
         team = Team(
-            name=data['name'],
-            ip=data['ip'],
+            name=data["name"],
+            ip=data["ip"],
             token=f"token-{data['name']}-{secrets.token_hex(8)}",
-            expected_tcp_ports=data['expected_tcp_ports']
+            expected_tcp_ports=expected_ports,
         )
         game_state.add_team(team)
-        return jsonify({"success": True, "message": "Team added successfully"})
+        return {"success": True, "message": "Team added successfully"}
     except ValueError as e:
-        return jsonify({"success": False, "message": str(e)}), 400
+        return JSONResponse(
+            status_code=400, content={"success": False, "message": str(e)}
+        )
 
-@admin_app.route('/api/teams/<team_name>', methods=['DELETE'])
-def admin_delete_team(team_name):
-    """Delete a team"""
+
+@admin_app.delete("/api/teams/{team_name}")
+async def admin_delete_team(team_name: str):
     try:
+        flag_validator.remove_team_flags(team_name)
         game_state.delete_team(team_name)
-        return jsonify({"success": True, "message": "Team deleted successfully"})
+        return {"success": True, "message": "Team deleted successfully"}
     except ValueError as e:
-        return jsonify({"success": False, "message": str(e)}), 400
+        return JSONResponse(
+            status_code=400, content={"success": False, "message": str(e)}
+        )
 
-@admin_app.route('/api/teams/<team_name>/<action>', methods=['POST'])
-def admin_team_action(team_name, action):
-    """Pause or resume scanning for a team"""
+
+@admin_app.post("/api/teams/{team_name}/{action}")
+async def admin_team_action(team_name: str, action: str):
     try:
-        if action == 'pause_scan':
-            game_state.update_team(team_name, {'scanning_paused': True})
-            return jsonify({"success": True, "message": "Scanning paused for " + team_name})
-        elif action == 'resume_scan':
-            game_state.update_team(team_name, {'scanning_paused': False})
-            return jsonify({"success": True, "message": "Scanning resumed for " + team_name})
-        else:
-            return jsonify({"success": False, "message": "Unknown action"}), 400
+        if action == "pause_scan":
+            game_state.update_team(team_name, {"scanning_paused": True})
+            return {"success": True, "message": "Scanning paused for " + team_name}
+        if action == "resume_scan":
+            game_state.update_team(team_name, {"scanning_paused": False})
+            return {"success": True, "message": "Scanning resumed for " + team_name}
+
+        return JSONResponse(
+            status_code=400, content={"success": False, "message": "Unknown action"}
+        )
     except ValueError as e:
-        return jsonify({"success": False, "message": str(e)}), 400
+        return JSONResponse(
+            status_code=400, content={"success": False, "message": str(e)}
+        )
 
 
+def run_public_server(host="0.0.0.0", port=5000, ssl_cert=None, ssl_key=None):
+    certfile = ssl_cert if ssl_cert and ssl_key else None
+    keyfile = ssl_key if ssl_cert and ssl_key else None
+    if certfile and keyfile:
+        logger.info("Using SSL: cert=%s key=%s", certfile, keyfile)
 
-def run_public_server(host='0.0.0.0', port=5000, ssl_cert=None, ssl_key=None):
-    ssl_context = None
-    if ssl_cert and ssl_key:
-        ssl_context = (ssl_cert, ssl_key)
-        logger.info("Using SSL: cert=%s key=%s", ssl_cert, ssl_key)
-    """Run the public Flask web server"""
     logger.info("Starting PUBLIC server on %s:%d", host, port)
-    public_app.run(host=host, port=port, debug=False, threaded=True, ssl_context=ssl_context)
+    uvicorn.run(
+        public_app,
+        host=host,
+        port=port,
+        log_level="info",
+        ssl_certfile=certfile,
+        ssl_keyfile=keyfile,
+    )
 
 
-def run_admin_server(host='127.0.0.1', port=5001):
-    """Run the admin Flask web server"""
+def run_admin_server(host="127.0.0.1", port=5001):
     logger.info("Starting ADMIN server on %s:%d (localhost only)", host, port)
-    admin_app.run(host=host, port=port, debug=False, threaded=True)
+    uvicorn.run(admin_app, host=host, port=port, log_level="info")
 
 
-def run_both_servers(public_host='0.0.0.0', public_port=5000, 
-                     admin_host='127.0.0.1', admin_port=5001,
-                     ssl_cert=None, ssl_key=None):
+def run_both_servers(
+    public_host="0.0.0.0",
+    public_port=5000,
+    admin_host="127.0.0.1",
+    admin_port=5001,
+    ssl_cert=None,
+    ssl_key=None,
+):
     """Run both public and admin servers in separate threads"""
-    
-    # Start public server in a thread
+
     public_thread = Thread(
         target=run_public_server,
         args=(public_host, public_port, ssl_cert, ssl_key),
         daemon=True,
-        name="public-server"
+        name="public-server",
     )
     public_thread.start()
-    
-    # Start admin server in main thread (so Ctrl+C works)
+
     run_admin_server(admin_host, admin_port)

@@ -2,8 +2,10 @@
 let
   python = pkgs.python312;
   pythonWithPackages = python.withPackages (ps: with ps; [
-    flask
     apscheduler
+    fastapi
+    uvicorn
+    jinja2
   ]);
 in
 pkgs.mkShell {
@@ -16,6 +18,6 @@ pkgs.mkShell {
   ];
   
   shellHook = ''
-    echo "nix shell started with flask, apscheduler"
+    echo "nix shell started with fastapi, uvicorn, apscheduler"
   '';
 }
